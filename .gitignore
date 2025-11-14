@@ -1,7 +1,22 @@
-__pycache__/
-.venv/
+# Dataset besar
+dataset/
+data/
+*.zip
+*.tar.gz
+
+# Model checkpoints & logs training
 checkpoints/
-results/
 runs/
-*.pt
-*.pth
+wandb/
+*.log
+
+# Jupyter output
+.ipynb_checkpoints/
+
+# Virtual env
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
