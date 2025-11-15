@@ -2,11 +2,17 @@
 import os, json, warnings
 from typing import Dict, List, Tuple, Generator, Any
 import random
+from pathlib import Path  # <— tambahan
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
 from PIL import Image, UnidentifiedImageError
+
+# Project root (folder utama: eye-disease-classification-main)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Root untuk folder dataset
+CURRENT_DATASET_ROOT = PROJECT_ROOT / "dataset"
 
 # Mean & std bawaan ImageNet—umum dipakai buat model pretrained (ResNet/ConvNeXt)
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -22,6 +28,35 @@ def set_seed(seed: int = 42):
     # supaya beberapa operasi lebih deterministik
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def fix_path(raw_path: str) -> str:
+    """
+    Bikin path di kfold.json lebih portable lintas OS / laptop.
+
+    - Kalau path asli memang ada di disk → pakai apa adanya.
+    - Kalau tidak ada:
+        * ambil bagian mulai dari 'dataset/...'
+        * sambung dengan PROJECT_ROOT sekarang:
+          PROJECT_ROOT / 'dataset/ODIR/GLAUCOMA/1261_right.jpg'
+    """
+    p = Path(raw_path)
+
+    # 1) Kalau path ini memang ada, langsung pakai
+    if p.exists():
+        return str(p)
+
+    # 2) Coba perbaiki: buang prefix Windows (C:\Users\perma\... dst)
+    parts = p.parts
+    if "dataset" in parts:
+        idx = parts.index("dataset")
+        rel_from_dataset = Path(*parts[idx:])  # misal: dataset/ODIR/GLAUCOMA/1261_right.jpg
+        candidate = PROJECT_ROOT / rel_from_dataset
+        if candidate.exists():
+            return str(candidate)
+
+    # 3) Kalau tetap tidak ketemu, kembalikan apa adanya (nanti akan error FileNotFoundError)
+    return str(p)
 
 
 class SimpleFundus(Dataset):
@@ -65,8 +100,11 @@ class SimpleFundus(Dataset):
 
     def __getitem__(self, i: int):
         e = self.entries[i]
-        path = e["path"]
+        raw_path = e["path"]
         label = e["label"]
+
+        # PERBAIKAN: path dibuat portable dulu
+        path = fix_path(raw_path)
 
         # cek file fisik ada
         if not os.path.exists(path):

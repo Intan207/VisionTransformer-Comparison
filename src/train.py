@@ -191,7 +191,6 @@ def main():
     if args.use_wandb:
         try:
             import wandb
-
             wandb_run = wandb.init(
                 project=args.project,
                 group=(args.group or None),
