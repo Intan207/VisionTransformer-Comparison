@@ -123,7 +123,7 @@ def load_folds(
     pin = torch.cuda.is_available()
     persistent = (num_workers > 0)
 
-    for fd in data["folds"]]:
+    for fd in data["folds"]:
         ds_tr = SimpleFundus(
             fd["train"],
             class_to_idx,
