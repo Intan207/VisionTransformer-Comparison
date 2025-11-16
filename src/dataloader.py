@@ -27,33 +27,23 @@ def set_seed(seed: int = 42):
 
 def fix_path(path: str) -> str:
     """
-    Normalisasi path gambar supaya:
-    - 'C:/.../dataset/ODIR/...'      → ROOT_DIR/dataset/ODIR/...
-    - '/content/DATASET/ODIR/...'    → ROOT_DIR/dataset/ODIR/...
-    - 'dataset/ODIR/...'             → ROOT_DIR/dataset/ODIR/...
+    Normalisasi path gambar supaya sederhana:
+    - Kalau path ABSOLUTE (mulai dari '/' atau '/content/...' atau sejenisnya) → pakai apa adanya
+    - Kalau path RELATIF (misal: 'dataset/ODIR/NORMAL/xxx.jpg') → gabung dengan ROOT_DIR
     """
     if not path:
         raise ValueError("Empty path in kfold.json")
 
-    # Samakan jadi '/'
+    # Samakan jadi '/' supaya tidak pusing backslash
     p = path.replace("\\", "/")
-    low = p.lower()
 
-    key = "dataset/"
-    if key in low:
-        # Ambil bagian mulai 'dataset/...', lalu pakai huruf kecil semua
-        idx = low.index(key)
-        rel = low[idx:]  # contoh: 'dataset/odir/normal/123.jpg'
-        full = os.path.join(ROOT_DIR, rel.replace("/", os.path.sep))
-        return os.path.normpath(full)
+    # 1) Kalau sudah absolute (contoh: /content/DATASET/ODIR/...), jangan diubah-ubah lagi
+    if os.path.isabs(p):
+        return os.path.normpath(p)
 
-    # Kalau path relatif biasa (bukan mengandung 'dataset/'), anggap relatif ke ROOT_DIR
-    if not os.path.isabs(path):
-        full = os.path.join(ROOT_DIR, p.replace("/", os.path.sep))
-        return os.path.normpath(full)
-
-    # Kalau path absolute lain, normalkan saja
-    return os.path.normpath(path)
+    # 2) Kalau relatif (misal: 'dataset/ODIR/NORMAL/xxx.jpg'), anggap relatif ke ROOT_DIR
+    full = os.path.join(ROOT_DIR, p)
+    return os.path.normpath(full)
 
 
 class SimpleFundus(Dataset):
@@ -120,6 +110,7 @@ def load_folds(
 
     set_seed(seed)
 
+    # kfold.json boleh relatif terhadap ROOT_DIR
     if not os.path.isabs(json_path):
         json_path = os.path.join(ROOT_DIR, json_path)
 
@@ -132,7 +123,7 @@ def load_folds(
     pin = torch.cuda.is_available()
     persistent = (num_workers > 0)
 
-    for fd in data["folds"]:
+    for fd in data["folds"]]:
         ds_tr = SimpleFundus(
             fd["train"],
             class_to_idx,
