@@ -1,18 +1,17 @@
-# dataloader.py — baca kfold.json → PyTorch DataLoader (robust + optional aug)
+# src/dataloader.py — baca kfold.json → PyTorch DataLoader (robust + cross-platform)
 import os, json, warnings
 from typing import Dict, List, Tuple, Generator, Any
 import random
-from pathlib import Path  # <— tambahan
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
 from PIL import Image, UnidentifiedImageError
 
-# Project root (folder utama: eye-disease-classification-main)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# Root untuk folder dataset
-CURRENT_DATASET_ROOT = PROJECT_ROOT / "dataset"
+# Root repo (…/tugas-akhir), supaya path tidak tergantung OS / user
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))           # .../tugas-akhir/src
+ROOT_DIR = os.path.abspath(os.path.join(THIS_DIR, ".."))        # .../tugas-akhir
+DATASET_ROOT = os.path.join(ROOT_DIR, "dataset")                # .../tugas-akhir/dataset
 
 # Mean & std bawaan ImageNet—umum dipakai buat model pretrained (ResNet/ConvNeXt)
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -30,33 +29,40 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.benchmark = False
 
 
-def fix_path(raw_path: str) -> str:
+def fix_path(path: str) -> str:
     """
-    Bikin path di kfold.json lebih portable lintas OS / laptop.
-
-    - Kalau path asli memang ada di disk → pakai apa adanya.
-    - Kalau tidak ada:
-        * ambil bagian mulai dari 'dataset/...'
-        * sambung dengan PROJECT_ROOT sekarang:
-          PROJECT_ROOT / 'dataset/ODIR/GLAUCOMA/1261_right.jpg'
+    Normalisasi path gambar supaya:
+    - Path absolute Windows dari kfold.json (C:/Users/…/dataset/ODIR/…) → ROOT_DIR/dataset/ODIR/…
+    - Path relatif 'dataset/ODIR/…' → ROOT_DIR/dataset/ODIR/…
+    - Tetap jalan di Windows / Linux / Mac.
     """
-    p = Path(raw_path)
+    if not path:
+        raise ValueError("Empty path in kfold.json")
 
-    # 1) Kalau path ini memang ada, langsung pakai
-    if p.exists():
-        return str(p)
+    # Normalisasi jadi forward slash dulu
+    p = path.replace("\\", "/")
+    low = p.lower()
 
-    # 2) Coba perbaiki: buang prefix Windows (C:\Users\perma\... dst)
-    parts = p.parts
-    if "dataset" in parts:
-        idx = parts.index("dataset")
-        rel_from_dataset = Path(*parts[idx:])  # misal: dataset/ODIR/GLAUCOMA/1261_right.jpg
-        candidate = PROJECT_ROOT / rel_from_dataset
-        if candidate.exists():
-            return str(candidate)
+    # Jika di path ada 'dataset/...' (dari Windows absolute path)
+    key = "dataset/"
+    if key in low:
+        idx = low.index(key)
+        rel = p[idx:]  # contoh: 'dataset/ODIR/CATARACT/123.jpg'
+        full = os.path.join(ROOT_DIR, rel.replace("/", os.path.sep))
+        return os.path.normpath(full)
 
-    # 3) Kalau tetap tidak ketemu, kembalikan apa adanya (nanti akan error FileNotFoundError)
-    return str(p)
+    # Jika path sudah relatif mulai dari 'dataset/...'
+    if low.startswith("dataset/"):
+        full = os.path.join(ROOT_DIR, p.replace("/", os.path.sep))
+        return os.path.normpath(full)
+
+    # Kalau path relatif biasa: anggap relatif terhadap ROOT_DIR
+    if not os.path.isabs(path):
+        full = os.path.join(ROOT_DIR, path.replace("/", os.path.sep))
+        return os.path.normpath(full)
+
+    # Kalau path absolute lain: hanya dinormalkan separatornya
+    return os.path.normpath(path)
 
 
 class SimpleFundus(Dataset):
@@ -103,12 +109,12 @@ class SimpleFundus(Dataset):
         raw_path = e["path"]
         label = e["label"]
 
-        # PERBAIKAN: path dibuat portable dulu
+        # perbaiki path agar cross-platform
         path = fix_path(raw_path)
 
         # cek file fisik ada
         if not os.path.exists(path):
-            warnings.warn(f"[dataloader] file not found: {path}")
+            warnings.warn(f"[dataloader] file not found after fix_path: {path}")
             raise FileNotFoundError(path)
 
         # buka gambar, pastikan RGB
@@ -135,9 +141,13 @@ def load_folds(
     Membaca kfold.json dan mengembalikan generator:
     yield dl_tr, dl_va, classes  untuk tiap fold.
     """
+
     set_seed(seed)
 
-    # baca JSON
+    # Pastikan path kfold.json relatif ke ROOT_DIR kalau dikasih relatif
+    if not os.path.isabs(json_path):
+        json_path = os.path.join(ROOT_DIR, json_path)
+
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -187,8 +197,10 @@ def load_folds(
 
 if __name__ == "__main__":
     # Demo kecil: test ambil 1 batch (optional, tidak dipakai train.py)
+    demo_json = os.path.join("results", "kfold.json")
     dl_tr, dl_va, classes = next(
-        load_folds("results/kfold.json", batch_size=8, num_workers=0, img_size=224)
+        load_folds(demo_json, batch_size=8, num_workers=0, img_size=224)
     )
     xb, yb = next(iter(dl_tr))
+    print("ROOT_DIR:", ROOT_DIR)
     print("Classes:", classes, "| Batch:", xb.shape, yb.shape)
