@@ -32,36 +32,38 @@ def set_seed(seed: int = 42):
 def fix_path(path: str) -> str:
     """
     Normalisasi path gambar supaya:
-    - Path absolute Windows dari kfold.json (C:/Users/…/dataset/ODIR/…) → ROOT_DIR/dataset/ODIR/…
-    - Path relatif 'dataset/ODIR/…' → ROOT_DIR/dataset/ODIR/…
-    - Tetap jalan di Windows / Linux / Mac.
+    - Path absolute yang mengandung 'dataset/...' (misal hasil kfold dari Windows / Linux)
+      diarahkan ke ROOT_DIR/dataset/...
+    - Path relatif 'dataset/ODIR/...' juga diarahkan ke ROOT_DIR/dataset/ODIR/...
     """
     if not path:
         raise ValueError("Empty path in kfold.json")
 
-    # Normalisasi jadi forward slash dulu
+    # ganti backslash → slash dulu
     p = path.replace("\\", "/")
     low = p.lower()
-
-    # Jika di path ada 'dataset/...' (dari Windows absolute path)
     key = "dataset/"
+
+    # kalau di path ada 'dataset/...'
     if key in low:
-        idx = low.index(key)
-        rel = p[idx:]  # contoh: 'dataset/ODIR/CATARACT/123.jpg'
-        full = os.path.join(ROOT_DIR, rel.replace("/", os.path.sep))
+        # ambil bagian SETELAH 'dataset/'
+        idx = low.index(key) + len(key)
+        rel_after = p[idx:]  # contoh: 'ODIR/NORMAL/123.jpg'
+        full = os.path.join(DATASET_ROOT, rel_after)
         return os.path.normpath(full)
 
-    # Jika path sudah relatif mulai dari 'dataset/...'
-    if low.startswith("dataset/"):
-        full = os.path.join(ROOT_DIR, p.replace("/", os.path.sep))
+    # kalau path diawali 'dataset/...'
+    if low.startswith(key):
+        rel_after = p[len(key):]  # buang 'dataset/'
+        full = os.path.join(DATASET_ROOT, rel_after)
         return os.path.normpath(full)
 
-    # Kalau path relatif biasa: anggap relatif terhadap ROOT_DIR
+    # kalau path relatif biasa → anggap relatif ke ROOT_DIR
     if not os.path.isabs(path):
-        full = os.path.join(ROOT_DIR, path.replace("/", os.path.sep))
+        full = os.path.join(ROOT_DIR, p)
         return os.path.normpath(full)
 
-    # Kalau path absolute lain: hanya dinormalkan separatornya
+    # kalau sudah absolut dan tidak mengandung 'dataset/' → biarkan saja
     return os.path.normpath(path)
 
 
@@ -159,6 +161,7 @@ def load_folds(
     persistent = (num_workers > 0)
 
     for fd in data["folds"]:
+
         ds_tr = SimpleFundus(
             fd["train"],
             class_to_idx,
