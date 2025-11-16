@@ -9,8 +9,9 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 from tqdm.auto import tqdm
 
-from dataloader import load_folds      # pakai dataloader.py kamu
-from model import build_model          # pakai model.py kamu
+# ==== IMPORT DARI PACKAGE src (penting untuk RunPod/Colab/Windows) ====
+from src.dataloader import load_folds      # pakai dataloader.py kamu
+from src.model import build_model          # pakai model.py kamu
 
 
 # =======================
@@ -35,10 +36,17 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
         gts.extend(yb.cpu().tolist())
 
     val_loss = sum(losses) / max(1, len(losses))
-    f1   = float(f1_score(gts, preds, average="macro"))
-    prec = float(precision_score(gts, preds, average="macro", zero_division=0))
-    rec  = float(recall_score(gts, preds, average="macro", zero_division=0))
-    acc  = float(accuracy_score(gts, preds))
+    # guard against empty ground-truth / prediction lists
+    if len(gts) == 0:
+        f1 = 0.0
+        prec = 0.0
+        rec = 0.0
+        acc = 0.0
+    else:
+        f1   = float(f1_score(gts, preds, average="macro"))
+        prec = float(precision_score(gts, preds, average="macro", zero_division=0))
+        rec  = float(recall_score(gts, preds, average="macro", zero_division=0))
+        acc  = float(sum(1 for a, b in zip(gts, preds) if a == b) / len(gts))
 
     return val_loss, acc, f1, prec, rec
 
@@ -64,6 +72,7 @@ def train_one_fold(
 
     best_f1 = -1.0
     best_state = None
+    wandb_disabled = False  # kalau W&B error di tengah, kita matikan
 
     for ep in range(1, epochs + 1):
         model.train()
@@ -92,20 +101,25 @@ def train_one_fold(
             f"acc={val_acc:.4f} | f1={val_f1:.4f}"
         )
 
-        if use_wandb and wandb_run is not None:
-            import wandb
-            wandb.log(
-                {
-                    "epoch": ep,
-                    "fold": fold_id,
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                    "val_acc": val_acc,
-                    "val_f1": val_f1,
-                    "val_precision": val_prec,
-                    "val_recall": val_rec,
-                }
-            )
+        # logging ke W&B (jika aktif & tidak error)
+        if use_wandb and (wandb_run is not None) and (not wandb_disabled):
+            try:
+                import wandb
+                wandb.log(
+                    {
+                        "epoch": ep,
+                        "fold": fold_id,
+                        "train_loss": train_loss,
+                        "val_loss": val_loss,
+                        "val_acc": val_acc,
+                        "val_f1": val_f1,
+                        "val_precision": val_prec,
+                        "val_recall": val_rec,
+                    }
+                )
+            except Exception as e:
+                print(f"[WARN] wandb.log gagal, W&B dimatikan untuk sisa training. Error: {e}")
+                wandb_disabled = True
 
         # simpan model terbaik berdasarkan F1
         if val_f1 > best_f1:
@@ -191,6 +205,7 @@ def main():
     if args.use_wandb:
         try:
             import wandb
+            # kalau API key belum ada, wandb.init biasanya akan error → kita tangkap
             wandb_run = wandb.init(
                 project=args.project,
                 group=(args.group or None),
@@ -208,9 +223,10 @@ def main():
                     "run_folds": f"{start_fold}-{end_fold}",
                 },
             )
-        except ImportError:
-            print("wandb tidak terpasang, logging W&B dimatikan.")
+        except Exception as e:
+            print(f"[WARN] wandb.init gagal, logging W&B dimatikan. Error: {e}")
             args.use_wandb = False
+            wandb_run = None
 
     # tempat simpan hasil tiap fold
     fold_results = []
@@ -280,16 +296,18 @@ def main():
     )
 
     if args.use_wandb and wandb_run is not None:
-        import wandb
-
-        wandb.log(
-            {
-                "avg/val_loss": avg_loss,
-                "avg/val_acc": avg_acc,
-                "avg/val_f1": avg_f1,
-            }
-        )
-        wandb.finish()
+        try:
+            import wandb
+            wandb.log(
+                {
+                    "avg/val_loss": avg_loss,
+                    "avg/val_acc": avg_acc,
+                    "avg/val_f1": avg_f1,
+                }
+            )
+            wandb.finish()
+        except Exception as e:
+            print(f"[WARN] wandb.log/finish gagal di akhir. Error: {e}")
 
     print("Selesai.")
 
