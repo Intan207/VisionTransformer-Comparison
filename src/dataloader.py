@@ -1,4 +1,3 @@
-# src/dataloader.py — baca kfold.json → PyTorch DataLoader (cross-platform, simple)
 import os, json, warnings
 from typing import Dict, List, Tuple, Generator, Any
 import random
@@ -8,10 +7,9 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
 from PIL import Image, UnidentifiedImageError
 
-# Root repo (…/tugas-akhir)
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))    # .../tugas-akhir/src
-ROOT_DIR = os.path.abspath(os.path.join(THIS_DIR, "..")) # .../tugas-akhir
-DATASET_ROOT = os.path.join(ROOT_DIR, "dataset")         # .../tugas-akhir/dataset
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))    
+ROOT_DIR = os.path.abspath(os.path.join(THIS_DIR, "..")) 
+DATASET_ROOT = os.path.join(ROOT_DIR, "dataset")         
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -26,22 +24,14 @@ def set_seed(seed: int = 42):
 
 
 def fix_path(path: str) -> str:
-    """
-    Normalisasi path gambar supaya sederhana:
-    - Kalau path ABSOLUTE (mulai dari '/' atau '/content/...' atau sejenisnya) → pakai apa adanya
-    - Kalau path RELATIF (misal: 'dataset/ODIR/NORMAL/xxx.jpg') → gabung dengan ROOT_DIR
-    """
     if not path:
         raise ValueError("Empty path in kfold.json")
 
-    # Samakan jadi '/' supaya tidak pusing backslash
     p = path.replace("\\", "/")
 
-    # 1) Kalau sudah absolute (contoh: /content/DATASET/ODIR/...), jangan diubah-ubah lagi
     if os.path.isabs(p):
         return os.path.normpath(p)
 
-    # 2) Kalau relatif (misal: 'dataset/ODIR/NORMAL/xxx.jpg'), anggap relatif ke ROOT_DIR
     full = os.path.join(ROOT_DIR, p)
     return os.path.normpath(full)
 
@@ -110,7 +100,6 @@ def load_folds(
 
     set_seed(seed)
 
-    # kfold.json boleh relatif terhadap ROOT_DIR
     if not os.path.isabs(json_path):
         json_path = os.path.join(ROOT_DIR, json_path)
 

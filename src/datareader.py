@@ -1,48 +1,19 @@
-"""
-datareader.py — scan folder dataset ODIR dan bikin file results/kfold.json
-Dipakai SEKALI SAJA untuk membagi dataset jadi K-Fold.
-Setelah itu training cukup pakai kfold.json yang sudah jadi.
-"""
-
 import json
 import random
 from pathlib import Path
 from collections import Counter
 from typing import List, Dict, Any
 
-# ====== KONFIGURASI DASAR (SESUAIKAN DENGAN STRUKTUR FOLDER KAMU) ======
 
-# Lokasi dataset ODIR di lokal (relative dari root repo)
-# Struktur yang diharapkan:
-#   dataset/
-#       ODIR/
-#           CATARACT/
-#           DR/
-#           GLAUCOMA/
-#           NORMAL/
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ROOT = REPO_ROOT / "dataset" / "ODIR"
 
-# Nama-nama kelas (harus sama dengan nama folder)
 CLASSES: List[str] = ["CATARACT", "DR", "GLAUCOMA", "NORMAL"]
-
-# Jumlah fold
 K_FOLDS: int = 5
-
-# Ekstensi gambar yang diterima
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
-# ====== FUNGSI PEMBANTU ======
-
 def scan_items(root: Path, classes: List[str]) -> List[Dict[str, Any]]:
-    """
-    Men-scan folder dataset dan mengembalikan list:
-    [
-      {"path": "C:/.../dataset/ODIR/CATARACT/xxx.jpg", "label": "CATARACT"},
-      ...
-    ]
-    """
     items: List[Dict[str, Any]] = []
     root = Path(root)
 
@@ -62,33 +33,21 @@ def scan_items(root: Path, classes: List[str]) -> List[Dict[str, Any]]:
 
 
 def make_stratified_kfold(root: Path, classes: List[str], k: int = 5):
-    """
-    Membagi dataset jadi k fold secara stratified:
-    - Tiap fold punya distribusi kelas yang mirip
-    - Untuk tiap fold:
-        - ada list 'train'
-        - ada list 'val'
-    """
     random.seed(42)
 
-    # Kumpulkan item per kelas
     by_class: Dict[str, List[Dict[str, Any]]] = {c: [] for c in classes}
     for it in scan_items(root, classes):
         by_class[it["label"]].append(it)
 
-    # Acak urutan dalam tiap kelas
     for c in classes:
         random.shuffle(by_class[c])
 
-    # Siapkan struktur fold
     folds = [{"train": [], "val": []} for _ in range(k)]
 
-    # Bagi per kelas
     for c in classes:
         arr = by_class[c]
         n = len(arr)
 
-        # Hitung ukuran tiap bagian untuk kelas ini
         sizes = [n // k + (1 if i < n % k else 0) for i in range(k)]
 
         idx = 0
@@ -97,9 +56,6 @@ def make_stratified_kfold(root: Path, classes: List[str], k: int = 5):
             parts.append(arr[idx:idx + s])
             idx += s
 
-        # Untuk setiap fold i:
-        #   - val: part ke-i
-        #   - train: gabungan part lain
         for i in range(k):
             val = parts[i]
             train = [x for j, part in enumerate(parts) if j != i for x in part]
@@ -108,8 +64,6 @@ def make_stratified_kfold(root: Path, classes: List[str], k: int = 5):
 
     return folds
 
-
-# ====== MAIN SCRIPT: BIKIN K-FOLD DAN SIMPAN KE JSON ======
 
 def main():
     print("=== Generate K-Fold JSON ===")

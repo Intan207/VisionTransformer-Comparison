@@ -1,0 +1,2 @@
+fold,val_loss,val_acc,val_f1,val_precision,val_recall,total_params,trainable_params,non_trainable_params,model_size_mb,inference_total_time_s,inference_avg_ms_per_image,inference_throughput_img_per_s,inference_n_images,ckpt,confusion_matrix_csv,perclass_metrics_csv
+1,1.396016841488225,0.25,0.1,0.0625,0.25,27522430,27522430,0,104.98973846435547,62.79729860043153,280.3450830376408,3.5670324200611505,224,quick_mini_test\swin-tiny_fold1_best.pt,quick_mini_test\swin-tiny_fold1_confusion_matrix.csv,quick_mini_test\swin-tiny_fold1_perclass_metrics.csv

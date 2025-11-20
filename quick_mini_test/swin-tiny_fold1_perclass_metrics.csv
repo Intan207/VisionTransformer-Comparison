@@ -1,0 +1,5 @@
+class,precision,recall,f1,support
+CATARACT,0.0,0.0,0.0,56
+DR,0.0,0.0,0.0,56
+GLAUCOMA,0.0,0.0,0.0,56
+NORMAL,0.25,1.0,0.4,56
