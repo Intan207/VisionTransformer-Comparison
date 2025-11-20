@@ -1,22 +1,35 @@
-# Dataset besar
-dataset/
-data/
-*.zip
-*.tar.gz
+# Python
+__pycache__/
+*.pyc
+*.pyo
 
-# Model checkpoints & logs training
-checkpoints/
-runs/
-wandb/
-*.log
-
-# Jupyter output
-.ipynb_checkpoints/
-
-# Virtual env
+# Virtual environment
 .venv/
 venv/
 
-# Python cache
-__pycache__/
-*.pyc
+# Datasets
+dataset/
+data/
+*.zip
+*.rar
+
+# Model weights
+*.pt
+*.pth
+*.safetensors
+
+# Results (binary)
+results_vit/*.pt
+results_swin/*.pt
+
+# HF cache
+huggingface/
+hf_cache/
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+wandb/
+logs/
