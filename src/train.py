@@ -1,4 +1,4 @@
-# train.py — Training sederhana (tanpa K-Fold) + metrik lengkap + inference time
+# train.py — Training dan evaluasi model (tanpa K-Fold)
 
 import os
 import csv
@@ -14,25 +14,21 @@ from sklearn.metrics import (
     f1_score,
     precision_score,
     recall_score,
-    accuracy_score,
     precision_recall_fscore_support,
     confusion_matrix,
 )
 from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
 
-from src.dataloader import SimpleFundus, set_seed  # pakai Dataset yang sudah ada
-from src.model import build_model                  # wrapper model (ViT, Swin, dll)
+from src.dataloader import SimpleFundus, set_seed
+from src.model import build_model
 
 
-# =======================
-#  Hitung parameter model
-# =======================
 def count_params(model: nn.Module) -> Dict[str, float]:
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     non_trainable = total - trainable
-    model_size_mb = total * 4 / (1024 ** 2)  # float32 = 4 byte
+    model_size_mb = total * 4 / (1024**2)
 
     return {
         "total_params": total,
@@ -42,9 +38,6 @@ def count_params(model: nn.Module) -> Dict[str, float]:
     }
 
 
-# =======================
-#  Evaluasi
-# =======================
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
     model.eval()
@@ -75,9 +68,6 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
     return val_loss, acc, f1, prec, rec, gts, preds
 
 
-# =======================
-#  Inference time
-# =======================
 @torch.no_grad()
 def measure_inference_time(
     model: nn.Module,
@@ -87,7 +77,6 @@ def measure_inference_time(
 ):
     model.eval()
 
-    # Warm-up
     it = iter(loader)
     for _ in range(warmup_batches):
         try:
@@ -97,7 +86,6 @@ def measure_inference_time(
         xb = xb.to(device)
         _ = model(xb)
 
-    # Timed pass
     total_time = 0.0
     n_images = 0
 
@@ -114,7 +102,7 @@ def measure_inference_time(
             torch.cuda.synchronize()
         t1 = time.perf_counter()
 
-        total_time += (t1 - t0)
+        total_time += t1 - t0
         n_images += xb.size(0)
 
     if n_images == 0 or total_time <= 0.0:
@@ -126,9 +114,6 @@ def measure_inference_time(
     return total_time, avg_ms, throughput, n_images
 
 
-# =======================
-#  Simpan CSV helper
-# =======================
 def save_confusion_matrix_csv(cm, classes, path: Path):
     with path.open("w", newline="") as f:
         writer = csv.writer(f)
@@ -153,9 +138,6 @@ def save_per_class_metrics_csv(
             writer.writerow([c, float(p), float(r), float(f1), int(s)])
 
 
-# =======================
-#  Training 1x (tanpa K-Fold)
-# =======================
 def train_model(
     model: nn.Module,
     dl_tr: DataLoader,
@@ -171,11 +153,14 @@ def train_model(
 
     best_f1 = -1.0
     best_state = None
+    history: List[Dict[str, float]] = []
 
     for ep in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
         nb = 0
+        train_correct = 0
+        train_total = 0
 
         for xb, yb in tqdm(dl_tr, desc=f"[epoch {ep}/{epochs}]", leave=False):
             xb = xb.to(device)
@@ -190,16 +175,33 @@ def train_model(
             total_loss += float(loss.item())
             nb += 1
 
+            preds = logits.argmax(1)
+            train_correct += (preds == yb).sum().item()
+            train_total += yb.size(0)
+
         train_loss = total_loss / max(1, nb)
+        train_acc = train_correct / train_total if train_total > 0 else 0.0
+
         val_loss, val_acc, val_f1, val_prec, val_rec, _, _ = evaluate(model, dl_va, device)
 
         print(
             f"[ep {ep:02d}] "
-            f"train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | "
-            f"acc={val_acc:.4f} | f1={val_f1:.4f}"
+            f"train_loss={train_loss:.4f} | train_acc={train_acc:.4f} | "
+            f"val_loss={val_loss:.4f} | val_acc={val_acc:.4f} | "
+            f"val_f1={val_f1:.4f}"
         )
 
-        # simpan model terbaik berdasarkan F1
+        history.append(
+            {
+                "epoch": ep,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "train_acc": train_acc,
+                "val_acc": val_acc,
+                "val_f1": val_f1,
+            }
+        )
+
         if val_f1 > best_f1:
             best_f1 = val_f1
             best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
@@ -207,30 +209,14 @@ def train_model(
                 Path(ckpt_path).parent.mkdir(parents=True, exist_ok=True)
                 torch.save(best_state, ckpt_path)
 
-    return best_state, best_f1
+    return best_state, best_f1, history
 
 
-# =======================
-#  Utils: scan folder dataset
-# =======================
 def scan_dataset(root_dir: Path) -> Tuple[List[Dict], List[str]]:
-    """
-    Scan folder dataset bertipe:
-        root_dir/
-          CATARACT/
-          DR/
-          GLAUCOMA/
-          NORMAL/
-    return:
-        entries: list[{path, label}]
-        classes: list str (sorted)
-    """
     if not root_dir.exists():
         raise FileNotFoundError(f"Folder dataset tidak ditemukan: {root_dir}")
 
-    classes = sorted(
-        [d.name for d in root_dir.iterdir() if d.is_dir()]
-    )
+    classes = sorted([d.name for d in root_dir.iterdir() if d.is_dir()])
     if not classes:
         raise ValueError(f"Tidak ada subfolder kelas di {root_dir}")
 
@@ -255,9 +241,6 @@ def scan_dataset(root_dir: Path) -> Tuple[List[Dict], List[str]]:
     return entries, classes
 
 
-# =======================
-#  MAIN (CLI)
-# =======================
 def main():
     import argparse
 
@@ -266,7 +249,7 @@ def main():
         "--dataset-root",
         type=str,
         required=True,
-        help="Path ke root dataset (berisi subfolder kelas, misal: ODIR/CATARACT, DR, dsb.)",
+        help="Path ke root dataset (berisi subfolder kelas)",
     )
     parser.add_argument(
         "--model",
@@ -278,7 +261,7 @@ def main():
             "vit-base",
             "swin-tiny",
             "deit-small",
-            "timm",  # generic timm
+            "timm",
         ],
         help="Pilih arsitektur model",
     )
@@ -294,12 +277,11 @@ def main():
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--wd", type=float, default=1e-4)
     parser.add_argument("--img-size", type=int, default=224)
-    parser.add_argument("--val-split", type=float, default=0.2, help="Persentase data untuk validasi")
+    parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--outdir", type=str, default="results")
 
     args = parser.parse_args()
 
-    # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         gpu_name = torch.cuda.get_device_name(0)
@@ -307,21 +289,16 @@ def main():
     else:
         print(f"Device: {device} (CPU)")
 
-    # Seed
     set_seed(42)
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # ============================
-    # 1) Scan dataset dari folder
-    # ============================
     dataset_root = Path(args.dataset_root)
     entries, classes = scan_dataset(dataset_root)
     num_classes = len(classes)
     print(f"Ditemukan {len(entries)} gambar, {num_classes} kelas: {classes}")
 
-    # Stratified train/val split
     labels = [e["label"] for e in entries]
     train_idx, val_idx = train_test_split(
         range(len(entries)),
@@ -337,7 +314,6 @@ def main():
 
     class_to_idx = {c: i for i, c in enumerate(classes)}
 
-    # Dataset & DataLoader
     ds_tr = SimpleFundus(
         train_entries,
         class_to_idx,
@@ -373,9 +349,6 @@ def main():
         prefetch_factor=(2 if persistent else None),
     )
 
-    # ============================
-    # 2) Bangun model
-    # ============================
     model = build_model(
         name=args.model,
         num_classes=num_classes,
@@ -383,7 +356,6 @@ def main():
         timm_name=(args.timm_name or None),
     )
 
-    # Hitung parameter
     param_info = count_params(model)
     print(
         f"Params — total: {param_info['total_params']:,} | "
@@ -392,11 +364,8 @@ def main():
         f"~size: {param_info['model_size_mb']:.2f} MB"
     )
 
-    # ============================
-    # 3) Training
-    # ============================
     ckpt_path = outdir / f"{args.model}_best.pt"
-    best_state, best_f1 = train_model(
+    best_state, best_f1, history = train_model(
         model=model,
         dl_tr=dl_tr,
         dl_va=dl_va,
@@ -410,9 +379,17 @@ def main():
     if best_state is None:
         raise RuntimeError("best_state kosong. Training mungkin gagal atau tidak ada batch yang diproses.")
 
-    # ============================
-    # 4) Evaluasi akhir
-    # ============================
+    # simpan kurva training/validation ke CSV
+    curves_path = outdir / f"{args.model}_training_curves.csv"
+    if history:
+        with curves_path.open("w", newline="") as f:
+            fieldnames = ["epoch", "train_loss", "val_loss", "train_acc", "val_acc", "val_f1"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in history:
+                writer.writerow(row)
+        print("Kurva training/validation disimpan di:", curves_path)
+
     model.load_state_dict(best_state)
     model.to(device)
     val_loss, val_acc, val_f1, val_prec, val_rec, gts, preds = evaluate(model, dl_va, device)
@@ -422,7 +399,6 @@ def main():
         f"f1={val_f1:.4f} | prec={val_prec:.4f} | rec={val_rec:.4f}"
     )
 
-    # Per-class metrics & confusion matrix
     results_row: Dict[str, float | int | str] = {
         "val_loss": val_loss,
         "val_acc": val_acc,
@@ -462,9 +438,6 @@ def main():
         results_row["confusion_matrix_csv"] = ""
         results_row["perclass_metrics_csv"] = ""
 
-    # ============================
-    # 5) Inference time
-    # ============================
     total_time_s, avg_ms, throughput, n_images = measure_inference_time(
         model,
         dl_va,
@@ -482,9 +455,6 @@ def main():
     results_row["inference_throughput_img_per_s"] = throughput
     results_row["inference_n_images"] = n_images
 
-    # ============================
-    # 6) Simpan summary CSV
-    # ============================
     csv_path = outdir / f"{args.model}_results_summary.csv"
     with csv_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(results_row.keys()))
