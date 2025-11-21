@@ -30,13 +30,6 @@ VisionTransformer-Comparison/
 │  ├─ datareader.py
 │  ├─ model.py
 │  └─ train.py
-├─ dataset/           # opsional, jika training pakai folder lokal
-│  └─ ODIR/           # berisi CATARACT, DR, GLAUCOMA, NORMAL
-├─ results/           # hasil training (csv, checkpoint, dll.)
-├─ quick_mini_test/   # contoh hasil k-Fold lama (opsional)
-├─ requirements.txt
-└─ LOGBOOK.md
-
 ```
 
 ### 4. Cara Menjalankan di Google Colab
