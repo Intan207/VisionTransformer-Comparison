@@ -1,5 +1,3 @@
-# train.py — Training dan evaluasi model (tanpa K-Fold)
-
 import os
 import csv
 import time
